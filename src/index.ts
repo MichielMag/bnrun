@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import yargs from 'yargs';
 import fs from 'fs';
 const { execSync } = require('child_process');
@@ -199,7 +200,7 @@ function runCommand(
 		command = command.replaceAll(sub.param, sub.value);
 	});
 
-	if (commandToRun.startsWith('bnr ')) {
+	if (commandToRun.startsWith('bnrun ')) {
 		const runCommand = command.substring(4);
 		const found = findMatchingScript(scripts, runCommand);
 		return executeScript(found, phase, level);

@@ -1,6 +1,6 @@
 {
 	"name": "bnrun",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"description": "An opinionated organized NPM scripts runner",
 	"main": "dist/index.js",
 	"scripts": {
@@ -20,7 +20,7 @@
 		"run"
 	],
 	"bin": {
-		"bnr": "./dist/index.js"
+		"bnrun": "./dist/index.js"
 	},
 	"author": "Michiel Magendans",
 	"license": "MIT",
