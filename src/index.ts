@@ -185,6 +185,8 @@ function executeScript(
 		builtSteps = [...builtSteps, ...steps.flat()];
 	}
 
+	scriptsRan.push(subbedScript.script.name);
+
 	return builtSteps;
 }
 

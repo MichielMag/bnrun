@@ -1,0 +1,56 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"definitions": {
+		"Option": {
+			"type": "string",
+			"enum": ["run-once"]
+		},
+		"Options": {
+			"type": "object",
+			"properties": {
+				"pre": { "$ref": "#/definitions/Option" },
+				"command": { "$ref": "#/definitions/Option" },
+				"post": { "$ref": "#/definitions/Option" }
+			},
+			"additionalProperties": false
+		},
+		"Script": {
+			"type": "object",
+			"properties": {
+				"options": { "$ref": "#/definitions/Options" },
+				"pre": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"command": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"minItems": 1
+				},
+				"post": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"required": ["command"],
+			"additionalProperties": false
+		}
+	},
+	"type": "object",
+	"patternProperties": {
+		".*": { "$ref": "#/definitions/Script" }
+	},
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"format": "uri|path"
+		}
+	},
+	"additionalProperties": false
+}
