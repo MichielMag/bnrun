@@ -200,8 +200,9 @@ function runCommand(
 		command = command.replaceAll(sub.param, sub.value);
 	});
 
-	if (commandToRun.startsWith('bnrun ')) {
-		const runCommand = command.substring(4);
+	const bnrunPrefix = 'bnrun ';
+	if (commandToRun.startsWith(bnrunPrefix)) {
+		const runCommand = command.substring(bnrunPrefix.length);
 		const found = findMatchingScript(scripts, runCommand);
 		return executeScript(found, phase, level);
 	}
