@@ -1,29 +1,34 @@
 import yargs from 'yargs';
 import fs from 'fs';
+const { execSync } = require('child_process');
 
 type CLIArgs = {
 	scriptDir: string;
 	verbose: boolean;
+	dry: boolean;
 	_: string[];
 };
 
 type Option = 'run-once';
 
 type Options = {
-	[key in keyof Script]: Option;
+	[key in keyof ScriptPhases]: Option;
 };
 
-type Script = {
-	name: string;
-	options?: Options;
+type ScriptPhases = {
 	pre?: string[];
 	command: string[];
 	post?: string[];
 };
 
-type Scripts = Record<string, Script>;
+type Script = {
+	name: string;
+	options?: Options;
+} & ScriptPhases;
 
-interface MatchResult {
+type ScriptFile = Record<string, Script>;
+
+interface ProcessedScript {
 	script: Script;
 	substitutions: { param: string; value: string }[];
 }
@@ -35,6 +40,8 @@ enum Phase {
 }
 
 type PlanStep = { script: string; phase: Phase; command: string };
+type PlanStepExplained = PlanStep & { explanation: string };
+type Plan = PlanStepExplained[];
 
 const argv = yargs
 	.option('scriptDir', {
@@ -50,14 +57,19 @@ const argv = yargs
 		description: 'Run in verbose mode',
 		default: false,
 	})
+	.option('dry', {
+		alias: 'd',
+		type: 'boolean',
+		description: 'Dry run',
+		default: false,
+	})
 	.help()
 	.alias('help', 'h').argv as CLIArgs;
 
 const scripts = loadScripts(argv.scriptDir);
 const scriptsRan: string[] = [];
-const plan: PlanStep[] = [];
 
-function findMatchingScript(scripts: Script[], param: string): MatchResult {
+function findMatchingScript(scripts: Script[], param: string): ProcessedScript {
 	const completeMatch = scripts.find(s => s.name === param);
 	if (completeMatch) {
 		return { script: completeMatch, substitutions: [] };
@@ -97,7 +109,7 @@ function loadScripts(scriptDir: string): Script[] {
 	return scripts;
 }
 
-function loadScriptFile(scriptFilePath: string): Scripts {
+function loadScriptFile(scriptFilePath: string): ScriptFile {
 	const data = fs.readFileSync(scriptFilePath, 'utf8');
 	const scripts = JSON.parse(data);
 	if (!isScriptsFile(scripts)) {
@@ -106,16 +118,14 @@ function loadScriptFile(scriptFilePath: string): Scripts {
 	return scripts;
 }
 
-function isScriptsFile(obj: unknown): obj is Scripts {
+function isScriptsFile(obj: unknown): obj is ScriptFile {
 	return typeof obj === 'object';
 }
 
-function verbose(str: string, level: number) {
-	if (argv.verbose) {
-		log(str, level);
-	}
-}
 function log(str: string, level: number) {
+	if (!argv.verbose) {
+		return;
+	}
 	console.log(`${'  '.repeat(level)}${str}`);
 }
 
@@ -132,54 +142,49 @@ function shouldExecutePre(
 }
 
 function executeScript(
-	subbedScript: MatchResult,
+	subbedScript: ProcessedScript,
 	phase: Phase = Phase.COMMAND,
-	level: number = 0
+	level: number = 0,
+	steps: PlanStep[] = []
 ) {
+	let builtSteps = [...steps];
 	let name = subbedScript.script.name;
 	subbedScript.substitutions.forEach(sub => {
 		name = name.replace(sub.param, sub.value);
 	});
-	verbose(`#### Executing script: ${name}`, level);
-	let prefix = ' #';
+	let prefix = '[CMD]';
 	if (phase === Phase.PRE) {
-		prefix = ' <';
+		prefix = '[PRE]';
 	}
 	if (phase === Phase.POST) {
-		prefix = ' >';
+		prefix = '[POS]';
 	}
 	log(`${prefix} ${name}`, level);
 
 	const { script, substitutions } = subbedScript;
 
 	if (shouldExecutePre(script)) {
-		verbose(`## Executing pre commands`, level);
-		script.pre.forEach(pre => {
-			runCommand(name, pre, substitutions, Phase.PRE, level + 1);
-		});
-		verbose(`## Done with pre commands`, level);
+		const steps = script.pre.map(pre =>
+			runCommand(name, pre, substitutions, Phase.PRE, level + 1)
+		);
+		builtSteps = [...builtSteps, ...steps.flat()];
 	}
 
 	if (script.command.length > 0) {
-		verbose(`## Executing commands`, level);
-		script.command.forEach(c => {
-			runCommand(name, c, substitutions, Phase.COMMAND, level + 1);
-		});
-		verbose(`## Done with commands`, level);
+		const steps = script.command.map(cmd =>
+			runCommand(name, cmd, substitutions, Phase.COMMAND, level + 1)
+		);
+		builtSteps = [...builtSteps, ...steps.flat()];
 	}
 
 	if (script.post && script.post.length > 0) {
-		verbose(`## Executing post commands`, level);
-		script.post.forEach(post => {
-			runCommand(name, post, substitutions, Phase.POST, level + 1);
-		});
-		verbose(`## Done with post commands`, level);
+		const steps = script.post.map(post =>
+			runCommand(name, post, substitutions, Phase.POST, level + 1)
+		);
+		builtSteps = [...builtSteps, ...steps.flat()];
 	}
 
-	verbose(`#### Done with script: ${name}\n`, level);
-
-	verbose(`#### Marking script as ran: ${name}`, level);
-	scriptsRan.push(subbedScript.script.name);
+	return builtSteps;
 }
 
 function runCommand(
@@ -188,7 +193,7 @@ function runCommand(
 	substitutions: { param: string; value: string }[],
 	phase: Phase,
 	level: number
-) {
+): PlanStep[] {
 	let command = commandToRun;
 	substitutions.forEach(sub => {
 		command = command.replaceAll(sub.param, sub.value);
@@ -197,21 +202,20 @@ function runCommand(
 	if (commandToRun.startsWith('bnr ')) {
 		const runCommand = command.substring(4);
 		const found = findMatchingScript(scripts, runCommand);
-		executeScript(found, phase, level);
-		return;
+		return executeScript(found, phase, level);
 	}
 	let prefix = ' $';
 	if (phase === Phase.PRE) {
-		prefix = '-$';
+		prefix = '<$';
 	}
 	if (phase === Phase.POST) {
-		prefix = '+$';
+		prefix = '>$';
 	}
 	log(`${prefix}: ${command}`, level);
-	plan.push({ script, phase, command });
+	return [{ script, phase, command }];
 }
 
-function stepPlanPrefix(step: PlanStep) {
+function stepPlanPrefix(step: PlanStep): string {
 	const { script, phase } = step;
 	const p =
 		phase === Phase.PRE ? 'pre:' : phase === Phase.POST ? 'post:' : '';
@@ -219,22 +223,91 @@ function stepPlanPrefix(step: PlanStep) {
 	return str;
 }
 
-function logPlanStep(step: PlanStep, minWidth: number) {
+function explainPlanStep(step: PlanStep, minWidth: number): string {
 	const prefix = stepPlanPrefix(step);
 	const spaces = ' '.repeat(minWidth - prefix.length);
 	const str = `${prefix}${spaces}$ ${step.command}`;
 	return str;
 }
 
-function logPlanSteps(steps: PlanStep[]) {
+function createPlan(steps: PlanStep[]): Plan {
 	const minWidth = steps.reduce((max, step) => {
 		const str = stepPlanPrefix(step);
 		return str.length > max ? str.length : max;
 	}, 0);
-	return steps.map(step => logPlanStep(step, minWidth)).join('\n');
+	return steps.map(step => ({
+		...step,
+		explanation: explainPlanStep(step, minWidth),
+	}));
 }
 
 const found = findMatchingScript(scripts, argv._[0]);
 
-executeScript(found);
-console.log(logPlanSteps(plan));
+const steps = executeScript(found);
+const plan = createPlan(steps);
+
+function prettyPrintable(title: string, script: PlanStep) {
+	const scriptLabel = 'Script:';
+	const phaseLabel = 'Phase:';
+	const commandLabel = 'Command:';
+
+	const maxLength = Math.max(
+		scriptLabel.length,
+		phaseLabel.length,
+		commandLabel.length
+	);
+
+	const scriptLine = `${scriptLabel.padEnd(maxLength)} ${script.script}`;
+	const phaseLine = `${phaseLabel.padEnd(maxLength)} ${Phase[script.phase]}`;
+	const commandLine = `${commandLabel.padEnd(maxLength)} ${script.command}`;
+
+	const boxWidth =
+		Math.max(
+			scriptLine.length,
+			phaseLine.length,
+			commandLine.length,
+			title.length
+		) + 2;
+
+	const topBorder = '┌' + '─'.repeat(boxWidth) + '┐';
+	const bottomBorder = '└' + '─'.repeat(boxWidth) + '┘';
+	const titleLine = `│ ${title.padEnd(boxWidth - 1)}│`;
+	const separatorLine = '├' + '─'.repeat(boxWidth) + '┤';
+
+	const formattedScriptLine = `│ ${scriptLine.padEnd(boxWidth - 1)}│`;
+	const formattedPhaseLine = `│ ${phaseLine.padEnd(boxWidth - 1)}│`;
+	const formattedCommandLine = `│ ${commandLine.padEnd(boxWidth - 1)}│`;
+
+	return (
+		'' +
+		topBorder +
+		'\n' +
+		titleLine +
+		'\n' +
+		separatorLine +
+		'\n' +
+		formattedScriptLine +
+		'\n' +
+		formattedPhaseLine +
+		'\n' +
+		formattedCommandLine +
+		'\n' +
+		bottomBorder +
+		'\n'
+	);
+}
+
+plan.forEach(step => {
+	if (!argv.dry) {
+		console.log(prettyPrintable(argv._[0], step));
+		// execute
+		try {
+			execSync(step.command, { stdio: 'inherit' });
+		} catch (error) {
+			console.error(`Error executing command: ${step.command}`);
+			process.exit(1);
+		}
+	} else {
+		console.log(step.explanation);
+	}
+});

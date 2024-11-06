@@ -1,5 +1,5 @@
 {
-	"name": "better-npm-run",
+	"name": "bnrun",
 	"version": "0.0.1",
 	"description": "An opinionated organized NPM scripts runner",
 	"main": "dist/index.js",
