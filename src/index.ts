@@ -16,6 +16,8 @@ type Option = 'run-once';
 
 type Options = {
 	[key in keyof ScriptPhases]: Option;
+} & {
+	options?: string[];
 };
 
 type ScriptPhases = {
@@ -26,7 +28,7 @@ type ScriptPhases = {
 
 type Script = {
 	name: string;
-	options?: Options;
+	config?: Options;
 } & ScriptPhases;
 
 type ScriptFile = Record<string, Script>;
@@ -145,7 +147,7 @@ function shouldExecutePre(
 	script: Script
 ): script is Script & { pre: string[] } {
 	if (script.pre && script.pre.length > 0) {
-		if (script.options && script.options.pre === 'run-once') {
+		if (script.config && script.config.pre === 'run-once') {
 			return !scriptsRan.includes(script.name);
 		}
 		return true;
@@ -157,7 +159,7 @@ function shouldExecutePost(
 	script: Script
 ): script is Script & { post: string[] } {
 	if (script.post && script.post.length > 0) {
-		if (script.options && script.options.post === 'run-once') {
+		if (script.config && script.config.post === 'run-once') {
 			return !scriptsRan.includes(script.name);
 		}
 		return true;

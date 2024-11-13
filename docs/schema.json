@@ -10,14 +10,20 @@
 			"properties": {
 				"pre": { "$ref": "#/definitions/Option" },
 				"command": { "$ref": "#/definitions/Option" },
-				"post": { "$ref": "#/definitions/Option" }
+				"post": { "$ref": "#/definitions/Option" },
+				"options": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
 			},
 			"additionalProperties": false
 		},
 		"Script": {
 			"type": "object",
 			"properties": {
-				"options": { "$ref": "#/definitions/Options" },
+				"config": { "$ref": "#/definitions/Options" },
 				"pre": {
 					"type": "array",
 					"items": {
