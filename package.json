@@ -1,6 +1,6 @@
 {
 	"name": "bnrun",
-	"version": "0.0.4",
+	"version": "0.0.5",
 	"description": "An opinionated organized NPM scripts runner",
 	"main": "dist/index.js",
 	"scripts": {
@@ -29,6 +29,7 @@
 	},
 	"homepage": "https://github.com/MichielMag/better-npm-run#readme",
 	"dependencies": {
+		"minimatch": "^10.0.1",
 		"yargs": "^17.7.2"
 	},
 	"devDependencies": {

@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import yargs from 'yargs';
 import fs from 'fs';
+import { minimatch } from 'minimatch';
 const { execSync } = require('child_process');
 
 type CLIArgs = {
 	scriptDir: string;
 	verbose: boolean;
 	dry: boolean;
+	skip?: string[];
 	_: string[];
 };
 
@@ -40,7 +42,12 @@ enum Phase {
 	POST,
 }
 
-type PlanStep = { script: string; phase: Phase; command: string };
+type PlanStep = {
+	script: string;
+	phase: Phase;
+	command: string;
+	skip: boolean;
+};
 type PlanStepExplained = PlanStep & { explanation: string };
 type Plan = PlanStepExplained[];
 
@@ -63,6 +70,10 @@ const argv = yargs
 		type: 'boolean',
 		description: 'Dry run',
 		default: false,
+	})
+	.option('skip', {
+		type: 'array',
+		description: 'Glob patterns of scripts to skip',
 	})
 	.help()
 	.alias('help', 'h').argv as CLIArgs;
@@ -142,6 +153,18 @@ function shouldExecutePre(
 	return false;
 }
 
+function shouldExecutePost(
+	script: Script
+): script is Script & { post: string[] } {
+	if (script.post && script.post.length > 0) {
+		if (script.options && script.options.post === 'run-once') {
+			return !scriptsRan.includes(script.name);
+		}
+		return true;
+	}
+	return false;
+}
+
 function executeScript(
 	subbedScript: ProcessedScript,
 	phase: Phase = Phase.COMMAND,
@@ -178,7 +201,7 @@ function executeScript(
 		builtSteps = [...builtSteps, ...steps.flat()];
 	}
 
-	if (script.post && script.post.length > 0) {
+	if (shouldExecutePost(script)) {
 		const steps = script.post.map(post =>
 			runCommand(name, post, substitutions, Phase.POST, level + 1)
 		);
@@ -215,8 +238,23 @@ function runCommand(
 	if (phase === Phase.POST) {
 		prefix = '>$';
 	}
+
+	const skip = matchGlobPatterns([script, command], argv.skip || []);
+
 	log(`${prefix}: ${command}`, level);
-	return [{ script, phase, command }];
+	return [{ script, phase, command, skip }];
+}
+
+function matchGlobPatterns(items: string[], patterns: string[]): boolean {
+	const matchedItems: string[] = [];
+	items.forEach(item => {
+		patterns.forEach(pattern => {
+			if (minimatch(item, pattern)) {
+				matchedItems.push(pattern);
+			}
+		});
+	});
+	return matchedItems.length > 0;
 }
 
 function stepPlanPrefix(step: PlanStep): string {
@@ -254,23 +292,29 @@ function prettyPrintable(title: string, script: PlanStep) {
 	const scriptLabel = 'Script:';
 	const phaseLabel = 'Phase:';
 	const commandLabel = 'Command:';
+	const willSkipLabel = 'Will skip:';
 
 	const maxLength = Math.max(
 		scriptLabel.length,
 		phaseLabel.length,
-		commandLabel.length
+		commandLabel.length,
+		willSkipLabel.length
 	);
+
+	const skip = script.skip ? 'Yes' : 'No';
 
 	const scriptLine = `${scriptLabel.padEnd(maxLength)} ${script.script}`;
 	const phaseLine = `${phaseLabel.padEnd(maxLength)} ${Phase[script.phase]}`;
 	const commandLine = `${commandLabel.padEnd(maxLength)} ${script.command}`;
+	const willSkipLine = `${willSkipLabel.padEnd(maxLength)} ${skip}`;
 
 	const boxWidth =
 		Math.max(
 			scriptLine.length,
 			phaseLine.length,
 			commandLine.length,
-			title.length
+			title.length,
+			willSkipLine.length
 		) + 2;
 
 	const topBorder = '┌' + '─'.repeat(boxWidth) + '┐';
@@ -281,6 +325,9 @@ function prettyPrintable(title: string, script: PlanStep) {
 	const formattedScriptLine = `│ ${scriptLine.padEnd(boxWidth - 1)}│`;
 	const formattedPhaseLine = `│ ${phaseLine.padEnd(boxWidth - 1)}│`;
 	const formattedCommandLine = `│ ${commandLine.padEnd(boxWidth - 1)}│`;
+	const formattedWillSKipLine = script.skip
+		? `│ ⚠️ ${willSkipLine.padEnd(boxWidth - 3)}│\n`
+		: '';
 
 	return (
 		'' +
@@ -296,22 +343,31 @@ function prettyPrintable(title: string, script: PlanStep) {
 		'\n' +
 		formattedCommandLine +
 		'\n' +
+		`${formattedWillSKipLine}` +
 		bottomBorder +
 		'\n'
 	);
 }
 
 plan.forEach(step => {
+	console.log(prettyPrintable(argv._[0], step));
 	if (!argv.dry) {
-		console.log(prettyPrintable(argv._[0], step));
 		// execute
 		try {
-			execSync(step.command, { stdio: 'inherit' });
+			if (!step.skip) {
+				execSync(step.command, { stdio: 'inherit' });
+			} else {
+				log(`Skipping ${step.command}`, 0);
+			}
 		} catch (error) {
 			console.error(`Error executing command: ${step.command}`);
 			process.exit(1);
 		}
 	} else {
-		console.log(step.explanation);
+		if (!step.skip) {
+			log(step.explanation, 0);
+		} else {
+			log(`Skipping ${step.explanation}`, 0);
+		}
 	}
 });
