@@ -22,6 +22,7 @@ type Options = {
 
 type ScriptPhases = {
 	pre?: string[];
+	validate?: string[];
 	command: string[];
 	post?: string[];
 };
@@ -40,6 +41,7 @@ interface ProcessedScript {
 
 enum Phase {
 	PRE,
+	VALIDATE,
 	COMMAND,
 	POST,
 }
@@ -167,6 +169,18 @@ function shouldExecutePost(
 	return false;
 }
 
+function shouldExecuteValidate(
+	script: Script
+): script is Script & { validate: string[] } {
+	if (script.validate && script.validate.length > 0) {
+		if (script.config && script.config.validate === 'run-once') {
+			return !scriptsRan.includes(script.name);
+		}
+		return true;
+	}
+	return false;
+}
+
 function executeScript(
 	subbedScript: ProcessedScript,
 	phase: Phase = Phase.COMMAND,
@@ -185,6 +199,9 @@ function executeScript(
 	if (phase === Phase.POST) {
 		prefix = '[POS]';
 	}
+	if (phase === Phase.VALIDATE) {
+		prefix = '[VAL]';
+	}
 	log(`${prefix} ${name}`, level);
 
 	const { script, substitutions } = subbedScript;
@@ -192,6 +209,13 @@ function executeScript(
 	if (shouldExecutePre(script)) {
 		const steps = script.pre.map(pre =>
 			runCommand(name, pre, substitutions, Phase.PRE, level + 1)
+		);
+		builtSteps = [...builtSteps, ...steps.flat()];
+	}
+
+	if (shouldExecuteValidate(script)) {
+		const steps = script.validate.map(validate =>
+			runCommand(name, validate, substitutions, Phase.VALIDATE, level + 1)
 		);
 		builtSteps = [...builtSteps, ...steps.flat()];
 	}

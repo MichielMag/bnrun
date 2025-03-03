@@ -30,6 +30,12 @@
 						"type": "string"
 					}
 				},
+				"validate": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
 				"command": {
 					"type": "array",
 					"items": {
